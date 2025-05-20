@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <script src="/static/htmx.min.js" defer></script>
+    <style>
+        /* ... (大部分 CSS 保持與 V 1.5.2 相似，可以根據需要調整間距和唯讀框的樣式) ... */
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        h1, h2 { color: #0056b3; text-align: center; }
+        #inventory-list { max-width: 900px; margin: 20px auto; background-color: white; padding:15px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #inventory-list table { margin-top: 0; border-collapse: collapse; width: 100%; }
+        #inventory-list th, #inventory-list td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 14px; }
+        #inventory-list th { background-color: #e9ecef; font-weight: bold; }
+        #inventory-list td button { font-size: 13px; padding: 6px 10px;}
+        #inventory-list td img {
+            vertical-align: middle;
+            margin-right: 5px; /* 給圖片和後面的文字一些間距 */
+        }
+        #inventory-list td:first-child { /* 圖片欄 */
+            width: 60px; /* 給圖片欄一個固定寬度 */
+            text-align: center;
+        }
+
+        button, input[type="submit"] {
+            background-color: #007bff; color: white; padding: 8px 12px;
+            border: none; border-radius: 4px; cursor: pointer; font-size: 14px;
+            margin-top: 5px; margin-right: 5px;
+        }
+        button:hover, input[type="submit"]:hover { background-color: #0056b3; }
+
+        form { max-width: 600px; margin: 30px auto; padding: 25px; background-color: white; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        form div { margin-bottom: 18px; } /* position: relative 移到 .search-input-container */
+        label { display: block; margin-bottom: 6px; font-weight: bold; font-size: 15px; }
+        input[type="text"], input[type="number"] {
+            width: calc(100% - 24px); padding: 10px;
+            border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+            font-size: 15px;
+        }
+        input[readonly] { /* V 1.6: 唯讀輸入框的樣式 */
+            background-color: #e9ecef; /* 給一點背景色以區分 */
+            cursor: default;
+        }
+        .search-input-container { position: relative; margin-bottom: 15px;} /* V 1.6: 包裹搜尋框和建議列表 */
+
+        .suggestions-list {
+            list-style-type: none; margin: 0; padding: 0;
+            border: 1px solid #ddd; border-top: none;
+            position: absolute; background-color: white;
+            width: calc(100% - 2px);
+            left: 0;
+            z-index: 1000; max-height: 200px; overflow-y: auto;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+            border-radius: 0 0 4px 4px;
+        }
+        .suggestions-list li { padding: 10px 12px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0;}
+        .suggestions-list li:last-child { border-bottom: none; }
+        .suggestions-list li:hover { background-color: #e9ecef; }
+        .suggestions-list li strong { color: #0056b3; }
+
+        .htmx-indicator { display: none; margin-left: 8px; vertical-align: middle; font-size: 12px; color: #555; }
+        [hx-indicator].htmx-request ~ .htmx-indicator { display: inline; }
+    </style>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    <div id="inventory-list" hx-get="/api/inventory" hx-trigger="load" hx-swap="innerHTML">
+        <p style="text-align:center; padding: 20px;">正在從伺服器載入庫存資料...</p>
+    </div>
+    <hr style="margin: 30px auto; width: 80%;">
+
+    <h2>新增/更新庫存項目</h2>
+    <form hx-post="/api/inventory/add"
+          hx-target="#inventory-list"
+          hx-swap="innerHTML"
+          hx-on::after-request="if(event.detail.successful) {
+                                    this.reset(); // 清空 quantity 和 main-form-part-number (隱藏)
+                                    htmx.find('#universal-search-input').value = ''; // 清空通用搜尋框
+                                    htmx.find('#part-number-display').value = '';  // 清空品號顯示框
+                                    htmx.find('#item-name-display').value = '';   // 清空品名顯示框
+                                    htmx.find('#universal-search-suggestions').innerHTML = '';
+                                }"
+          id="add-item-form">
+
+        <div class="search-input-container">
+            <label for="universal-search-input">搜尋產品 (輸入品號或品名):</label>
+            <input type="text" id="universal-search-input"
+                   name="universal_search_query" hx-get="/api/search/product" hx-trigger="keyup changed delay:300ms"
+                   hx-target="#universal-search-suggestions"
+                   hx-swap="innerHTML"
+                   hx-indicator="#loading-indicator-universal"
+                   autocomplete="off"
+                   placeholder="輸入品號或品名關鍵字...">
+            <span id="loading-indicator-universal" class="htmx-indicator">查詢中...</span>
+            <div id="universal-search-suggestions" class="suggestions-list"></div> </div>
+
+        <div>
+            <label for="part-number-display">品號:</label>
+            <input type="text" id="part-number-display" readonly>
+        </div>
+        <div>
+            <label for="item-name-display">品名:</label>
+            <input type="text" id="item-name-display" readonly>
+        </div>
+
+        <input type="hidden" id="main-form-part-number" name="part_number">
+
+        <div>
+            <label for="item-quantity">數量:</label>
+            <input type="number" id="item-quantity" name="quantity" required min="0">
+        </div>
+        <div>
+            <input type="submit" value="新增/更新到庫存">
+        </div>
+    </form>
+
+    <hr style="margin: 30px auto; width: 80%;">
+    <div style="text-align:center; margin-bottom: 20px;">
+        <button hx-get="/api/ping" hx-target="#ping-result" hx-swap="innerHTML">測試 Ping 後端</button>
+        <div id="ping-result" style="margin-top: 10px; font-style: italic; color: #337ab7;"></div>
+    </div>
+
+    <script>
+        // V 1.6: 修改 selectSuggestion 以填充新的顯示框和隱藏欄位
+        function selectUniversalSuggestion(partNumber, itemName) {
+            const pnDisplay = htmx.find('#part-number-display');
+            const inDisplay = htmx.find('#item-name-display');
+            const mainFormPnInput = htmx.find('#main-form-part-number');
+            const suggestionsContainer = htmx.find('#universal-search-suggestions');
+            const universalSearchInput = htmx.find('#universal-search-input');
+
+            if (pnDisplay) pnDisplay.value = partNumber;
+            if (inDisplay) inDisplay.value = itemName;
+            if (mainFormPnInput) mainFormPnInput.value = partNumber; // 填充提交用的品號
+            if (suggestionsContainer) suggestionsContainer.innerHTML = ''; // 清空建議列表
+            if (universalSearchInput) universalSearchInput.value = ''; // 清空搜尋框 (可選)
+        }
+
+        document.addEventListener('click', function(event) {
+            const suggestions = htmx.find('#universal-search-suggestions');
+            const searchInput = htmx.find('#universal-search-input');
+            if (suggestions && searchInput && !searchInput.contains(event.target) && !suggestions.contains(event.target)) {
+                suggestions.innerHTML = '';
+            }
+        });
+    </script>
+</body>
+</html>
